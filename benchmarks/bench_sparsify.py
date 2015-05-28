@@ -45,7 +45,6 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
 
 from scipy.sparse.csr import csr_matrix
 import numpy as np
-from sklearn.utils.fixes import count_nonzero
 from sklearn.linear_model.stochastic_gradient import SGDRegressor
 from sklearn.metrics import r2_score
 
@@ -53,13 +52,13 @@ np.random.seed(42)
 
 
 def sparsity_ratio(X):
-    return count_nonzero(X) / float(n_samples * n_features)
+    return np.count_nonzero(X) / float(n_samples * n_features)
 
 n_samples, n_features = 5000, 300
 X = np.random.randn(n_samples, n_features)
 inds = np.arange(n_samples)
 np.random.shuffle(inds)
-X[inds[n_features/1.2:]] = 0  # sparsify input
+X[inds[int(n_features / 1.2):]] = 0  # sparsify input
 print("input data sparsity: %f" % sparsity_ratio(X))
 coef = 3 * np.random.randn(n_features)
 inds = np.arange(n_features)
@@ -82,16 +81,17 @@ clf = SGDRegressor(penalty='l1', alpha=.2, fit_intercept=True, n_iter=2000)
 clf.fit(X_train, y_train)
 print("model sparsity: %f" % sparsity_ratio(clf.coef_))
 
-@profile
+
 def benchmark_dense_predict():
     for _ in range(300):
         clf.predict(X_test)
 
-@profile
+
 def benchmark_sparse_predict():
     X_test_sparse = csr_matrix(X_test)
     for _ in range(300):
         clf.predict(X_test_sparse)
+
 
 def score(y_test, y_pred, case):
     r2 = r2_score(y_test, y_pred)

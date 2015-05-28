@@ -1,10 +1,11 @@
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from .... import datasets
-from ..unsupervised import silhouette_score
-from ... import pairwise_distances
-from nose.tools import assert_false, assert_almost_equal
+from sklearn import datasets
+from sklearn.metrics.cluster.unsupervised import silhouette_score
+from sklearn.metrics import pairwise_distances
+from sklearn.utils.testing import assert_false, assert_almost_equal
+from sklearn.utils.testing import assert_raises_regexp
 
 
 def test_silhouette():
@@ -49,3 +50,23 @@ def test_no_nan():
     D = np.random.RandomState(0).rand(len(labels), len(labels))
     silhouette = silhouette_score(D, labels, metric='precomputed')
     assert_false(np.isnan(silhouette))
+
+
+def test_correct_labelsize():
+    """Assert 1 < n_labels < n_samples"""
+    dataset = datasets.load_iris()
+    X = dataset.data
+
+    # n_labels = n_samples
+    y = np.arange(X.shape[0])
+    assert_raises_regexp(ValueError,
+                         'Number of labels is %d\. Valid values are 2 '
+                         'to n_samples - 1 \(inclusive\)' % len(np.unique(y)),
+                         silhouette_score, X, y)
+
+    # n_labels = 1
+    y = np.zeros(X.shape[0])
+    assert_raises_regexp(ValueError,
+                         'Number of labels is %d\. Valid values are 2 '
+                         'to n_samples - 1 \(inclusive\)' % len(np.unique(y)),
+                         silhouette_score, X, y)

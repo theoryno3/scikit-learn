@@ -30,7 +30,6 @@ from sklearn.ensemble.forest import RandomForestRegressor
 from sklearn.linear_model.ridge import Ridge
 from sklearn.linear_model.stochastic_gradient import SGDRegressor
 from sklearn.svm.classes import SVR
-from sklearn.utils.fixes import count_nonzero
 
 
 def _not_in_sphinx():
@@ -61,7 +60,7 @@ def bulk_benchmark_estimator(estimator, X_test, n_bulk_repeats, verbose):
         start = time.time()
         estimator.predict(X_test)
         runtimes[i] = time.time() - start
-    runtimes = np.array(map(lambda x: x / float(n_instances), runtimes))
+    runtimes = np.array(list(map(lambda x: x / float(n_instances), runtimes)))
     if verbose:
         print("bulk_benchmark runtimes:", min(runtimes), scoreatpercentile(
             runtimes, 50), max(runtimes))
@@ -133,6 +132,7 @@ def boxplot_runtimes(runtimes, pred_type, configuration):
     pred_type : 'bulk' or 'atomic'
 
     """
+
     fig, ax1 = plt.subplots(figsize=(10, 6))
     bp = plt.boxplot(runtimes, )
 
@@ -141,9 +141,7 @@ def boxplot_runtimes(runtimes, pred_type, configuration):
                                       estimator_conf['instance']),
                                   estimator_conf['complexity_label']) for
                  estimator_conf in configuration['estimators']]
-    xtick_names = plt.setp(ax1, xticklabels=cls_infos)
-    plt.setp(xtick_names)
-
+    plt.setp(ax1, xticklabels=cls_infos)
     plt.setp(bp['boxes'], color='black')
     plt.setp(bp['whiskers'], color='black')
     plt.setp(bp['fliers'], color='red', marker='+')
@@ -207,7 +205,7 @@ def n_feature_influence(estimators, n_train, n_test, n_features, percentile):
     for n in n_features:
         print("benchmarking with %d features" % n)
         X_train, y_train, X_test, y_test = generate_dataset(n_train, n_test, n)
-        for cls_name, estimator in estimators.iteritems():
+        for cls_name, estimator in estimators.items():
             estimator.fit(X_train, y_train)
             gc.collect()
             runtimes = bulk_benchmark_estimator(estimator, X_test, 30, False)
@@ -219,8 +217,8 @@ def n_feature_influence(estimators, n_train, n_test, n_features, percentile):
 def plot_n_features_influence(percentiles, percentile):
     fig, ax1 = plt.subplots(figsize=(10, 6))
     colors = ['r', 'g', 'b']
-    for i, cls_name in enumerate(percentiles.iterkeys()):
-        x = np.array(sorted([n for n in percentiles[cls_name].iterkeys()]))
+    for i, cls_name in enumerate(percentiles.keys()):
+        x = np.array(sorted([n for n in percentiles[cls_name].keys()]))
         y = np.array([percentiles[cls_name][n] for n in x])
         plt.plot(x, y, color=colors[i], )
     ax1.yaxis.grid(True, linestyle='-', which='major', color='lightgrey',
@@ -229,7 +227,6 @@ def plot_n_features_influence(percentiles, percentile):
     ax1.set_title('Evolution of Prediction Time with #Features')
     ax1.set_xlabel('#Features')
     ax1.set_ylabel('Prediction Time at %d%%-ile (us)' % percentile)
-    ax1.legend()
     plt.show()
 
 
@@ -268,7 +265,6 @@ def plot_benchmark_throughput(throughputs, configuration):
     ax.set_ylabel('Throughput (predictions/sec)')
     ax.set_title('Prediction Throughput for different estimators (%d '
                  'features)' % configuration['n_features'])
-    ax.legend()
     plt.show()
 
 
@@ -287,7 +283,7 @@ configuration = {
          'instance': SGDRegressor(penalty='elasticnet', alpha=0.01,
                                   l1_ratio=0.25, fit_intercept=True),
          'complexity_label': 'non-zero coefficients',
-         'complexity_computer': lambda clf: count_nonzero(clf.coef_)},
+         'complexity_computer': lambda clf: np.count_nonzero(clf.coef_)},
         {'name': 'RandomForest',
          'instance': RandomForestRegressor(),
          'complexity_label': 'estimators',

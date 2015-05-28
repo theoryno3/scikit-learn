@@ -1,6 +1,6 @@
-"""Mean Shift clustering algorithm
+"""Mean shift clustering algorithm.
 
-MeanShift clustering aims to discover *blobs* in a smooth density of
+Mean shift clustering aims to discover *blobs* in a smooth density of
 samples. It is a centroid based algorithm, which works by updating candidates
 for centroids to be the mean of the points within a given region. These
 candidates are then filtered in a post-processing stage to eliminate
@@ -13,11 +13,13 @@ Seeding is performed using a binning technique for scalability.
 #          Alexandre Gramfort <alexandre.gramfort@inria.fr>
 #          Gael Varoquaux <gael.varoquaux@normalesup.org>
 
-from collections import defaultdict
 import numpy as np
+import warnings
 
+from collections import defaultdict
 from ..externals import six
-from ..utils import extmath, check_random_state, gen_batches
+from ..utils.validation import check_is_fitted
+from ..utils import extmath, check_random_state, gen_batches, check_array
 from ..base import BaseEstimator, ClusterMixin
 from ..neighbors import NearestNeighbors
 from ..metrics.pairwise import pairwise_distances_argmin
@@ -31,7 +33,7 @@ def estimate_bandwidth(X, quantile=0.3, n_samples=None, random_state=0):
 
     Parameters
     ----------
-    X : array [n_samples, n_features]
+    X : array-like, shape=[n_samples, n_features]
         Input points.
 
     quantile : float, default 0.3
@@ -65,21 +67,14 @@ def estimate_bandwidth(X, quantile=0.3, n_samples=None, random_state=0):
 
 
 def mean_shift(X, bandwidth=None, seeds=None, bin_seeding=False,
-               min_bin_freq=1, cluster_all=True, max_iterations=300):
-    """Perform MeanShift Clustering of data using a flat kernel
-
-    MeanShift clustering aims to discover *blobs* in a smooth density of
-    samples. It is a centroid based algorithm, which works by updating candidates
-    for centroids to be the mean of the points within a given region. These
-    candidates are then filtered in a post-processing stage to eliminate
-    near-duplicates to form the final set of centroids.
-
-    Seeding is performed using a binning technique for scalability.
+               min_bin_freq=1, cluster_all=True, max_iter=300,
+               max_iterations=None):
+    """Perform mean shift clustering of data using a flat kernel.
 
     Parameters
     ----------
 
-    X : array-like shape=[n_samples, n_features]
+    X : array-like, shape=[n_samples, n_features]
         Input data.
 
     bandwidth : float, optional
@@ -90,29 +85,39 @@ def mean_shift(X, bandwidth=None, seeds=None, bin_seeding=False,
         the number of samples. The sklearn.cluster.estimate_bandwidth function
         can be used to do this more efficiently.
 
-    seeds : array [n_seeds, n_features]
-        Point used as initial kernel locations.
+    seeds : array-like, shape=[n_seeds, n_features] or None
+        Point used as initial kernel locations. If None and bin_seeding=False,
+        each data point is used as a seed. If None and bin_seeding=True,
+        see bin_seeding.
 
-    bin_seeding : boolean
+    bin_seeding : boolean, default=False
         If true, initial kernel locations are not locations of all
         points, but rather the location of the discretized version of
         points, where points are binned onto a grid whose coarseness
         corresponds to the bandwidth. Setting this option to True will speed
         up the algorithm because fewer seeds will be initialized.
-        default value: False
         Ignored if seeds argument is not None.
 
-    min_bin_freq : int, optional
+    min_bin_freq : int, default=1
        To speed up the algorithm, accept only those bins with at least
-       min_bin_freq points as seeds. If not defined, set to 1.
+       min_bin_freq points as seeds.
+
+    cluster_all : boolean, default True
+        If true, then all points are clustered, even those orphans that are
+        not within any kernel. Orphans are assigned to the nearest kernel.
+        If false, then orphans are given cluster label -1.
+
+    max_iter : int, default 300
+        Maximum number of iterations, per seed point before the clustering
+        operation terminates (for that seed point), if has not converged yet.
 
     Returns
     -------
 
-    cluster_centers : array [n_clusters, n_features]
+    cluster_centers : array, shape=[n_clusters, n_features]
         Coordinates of cluster centers.
 
-    labels : array [n_samples]
+    labels : array, shape=[n_samples]
         Cluster labels for each point.
 
     Notes
@@ -120,8 +125,18 @@ def mean_shift(X, bandwidth=None, seeds=None, bin_seeding=False,
     See examples/cluster/plot_meanshift.py for an example.
 
     """
+    # FIXME To be removed in 0.18
+    if max_iterations is not None:
+        warnings.warn("The `max_iterations` parameter has been renamed to "
+                      "`max_iter` from version 0.16. The `max_iterations` "
+                      "parameter will be removed in 0.18", DeprecationWarning)
+        max_iter = max_iterations
+
     if bandwidth is None:
         bandwidth = estimate_bandwidth(X)
+    elif bandwidth <= 0:
+        raise ValueError("bandwidth needs to be greater than zero or None, got %f" %
+                         bandwidth)
     if seeds is None:
         if bin_seeding:
             seeds = get_bin_seeds(X, bandwidth, min_bin_freq)
@@ -132,7 +147,7 @@ def mean_shift(X, bandwidth=None, seeds=None, bin_seeding=False,
     center_intensity_dict = {}
     nbrs = NearestNeighbors(radius=bandwidth).fit(X)
 
-    # For each seed, climb gradient until convergence or max_iterations
+    # For each seed, climb gradient until convergence or max_iter
     for my_mean in seeds:
         completed_iterations = 0
         while True:
@@ -144,12 +159,18 @@ def mean_shift(X, bandwidth=None, seeds=None, bin_seeding=False,
                 break  # Depending on seeding strategy this condition may occur
             my_old_mean = my_mean  # save the old mean
             my_mean = np.mean(points_within, axis=0)
-            # If converged or at max_iterations, addS the cluster
+            # If converged or at max_iter, adds the cluster
             if (extmath.norm(my_mean - my_old_mean) < stop_thresh or
-                    completed_iterations == max_iterations):
+                    completed_iterations == max_iter):
                 center_intensity_dict[tuple(my_mean)] = len(points_within)
                 break
             completed_iterations += 1
+
+    if not center_intensity_dict:
+        # nothing near seeds
+        raise ValueError("No point was within bandwidth=%f of any seed."
+                         " Try a different seeding strategy or increase the bandwidth."
+                         % bandwidth)
 
     # POST PROCESSING: remove near duplicate points
     # If the distance between two kernels is less than the bandwidth,
@@ -182,7 +203,7 @@ def mean_shift(X, bandwidth=None, seeds=None, bin_seeding=False,
 
 
 def get_bin_seeds(X, bin_size, min_bin_freq=1):
-    """Finds seeds for mean_shift
+    """Finds seeds for mean_shift.
 
     Finds seeds by first binning data onto a grid whose lines are
     spaced bin_size apart, and then choosing those bins with at least
@@ -214,18 +235,30 @@ def get_bin_seeds(X, bin_size, min_bin_freq=1):
     # Bin points
     bin_sizes = defaultdict(int)
     for point in X:
-        binned_point = np.cast[np.int32](point / bin_size)
+        binned_point = np.round(point / bin_size)
         bin_sizes[tuple(binned_point)] += 1
 
     # Select only those bins as seeds which have enough members
     bin_seeds = np.array([point for point, freq in six.iteritems(bin_sizes) if
                           freq >= min_bin_freq], dtype=np.float32)
+    if len(bin_seeds) == len(X):
+        warnings.warn("Binning data failed with provided bin_size=%f, using data"
+                      " points as seeds." % bin_size)
+        return X
     bin_seeds = bin_seeds * bin_size
     return bin_seeds
 
 
 class MeanShift(BaseEstimator, ClusterMixin):
-    """MeanShift clustering
+    """Mean shift clustering using a flat kernel.
+
+    Mean shift clustering aims to discover "blobs" in a smooth density of
+    samples. It is a centroid-based algorithm, which works by updating
+    candidates for centroids to be the mean of the points within a given
+    region. These candidates are then filtered in a post-processing stage to
+    eliminate near-duplicates to form the final set of centroids.
+
+    Seeding is performed using a binning technique for scalability.
 
     Parameters
     ----------
@@ -236,7 +269,7 @@ class MeanShift(BaseEstimator, ClusterMixin):
         sklearn.cluster.estimate_bandwidth; see the documentation for that
         function for hints on scalability (see also the Notes, below).
 
-    seeds : array [n_samples, n_features], optional
+    seeds : array, shape=[n_samples, n_features], optional
         Seeds used to initialize kernels. If not set,
         the seeds are calculated by clustering.get_bin_seeds
         with bandwidth as the grid size and default values for
@@ -262,10 +295,10 @@ class MeanShift(BaseEstimator, ClusterMixin):
 
     Attributes
     ----------
-    `cluster_centers_` : array, [n_clusters, n_features]
+    cluster_centers_ : array, [n_clusters, n_features]
         Coordinates of cluster centers.
 
-    `labels_` :
+    labels_ :
         Labels of each point.
 
     Notes
@@ -301,7 +334,7 @@ class MeanShift(BaseEstimator, ClusterMixin):
         self.cluster_all = cluster_all
         self.min_bin_freq = min_bin_freq
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         """Perform clustering.
 
         Parameters
@@ -309,6 +342,7 @@ class MeanShift(BaseEstimator, ClusterMixin):
         X : array-like, shape=[n_samples, n_features]
             Samples to cluster.
         """
+        X = check_array(X)
         self.cluster_centers_, self.labels_ = \
             mean_shift(X, bandwidth=self.bandwidth, seeds=self.seeds,
                        min_bin_freq=self.min_bin_freq,
@@ -321,7 +355,7 @@ class MeanShift(BaseEstimator, ClusterMixin):
 
         Parameters
         ----------
-        X : {array-like, sparse matrix}, shape = [n_samples, n_features]
+        X : {array-like, sparse matrix}, shape=[n_samples, n_features]
             New data to predict.
 
         Returns
@@ -329,4 +363,6 @@ class MeanShift(BaseEstimator, ClusterMixin):
         labels : array, shape [n_samples,]
             Index of the cluster each sample belongs to.
         """
+        check_is_fitted(self, "cluster_centers_")
+
         return pairwise_distances_argmin(X, self.cluster_centers_)

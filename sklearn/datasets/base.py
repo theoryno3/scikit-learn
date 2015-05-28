@@ -10,7 +10,6 @@ Base IO code for all datasets
 import os
 import csv
 import shutil
-import warnings
 from os import environ
 from os.path import dirname
 from os.path import join
@@ -26,12 +25,38 @@ from ..utils import check_random_state
 
 
 class Bunch(dict):
-    """Container object for datasets: dictionary-like object that
-       exposes its keys as attributes."""
+    """Container object for datasets
+
+    Dictionary-like object that exposes its keys as attributes.
+
+    >>> b = Bunch(a=1, b=2)
+    >>> b['b']
+    2
+    >>> b.b
+    2
+    >>> b.a = 3
+    >>> b['a']
+    3
+    >>> b.c = 6
+    >>> b['c']
+    6
+
+    """
 
     def __init__(self, **kwargs):
         dict.__init__(self, kwargs)
-        self.__dict__ = self
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def __getstate__(self):
+        return self.__dict__
 
 
 def get_data_home(data_home=None):
@@ -44,7 +69,7 @@ def get_data_home(data_home=None):
     in the user home folder.
 
     Alternatively, it can be set by the 'SCIKIT_LEARN_DATA' environment
-    variable or programmatically by giving an explit folder path. The
+    variable or programmatically by giving an explicit folder path. The
     '~' symbol is expanded to the user home folder.
 
     If the folder does not already exist, it is automatically created.
@@ -66,7 +91,6 @@ def clear_data_home(data_home=None):
 
 def load_files(container_path, description=None, categories=None,
                load_content=True, shuffle=True, encoding=None,
-               charset=None, charset_error=None,
                decode_error='strict', random_state=0):
     """Load text files with categories as subfolder names.
 
@@ -84,7 +108,7 @@ def load_files(container_path, description=None, categories=None,
                 file_44.txt
                 ...
 
-    The folder names are used has supervised signal label names. The
+    The folder names are used as supervised signal label names. The
     individual file names are not important.
 
     This function does not try to extract features into a numpy array or
@@ -155,19 +179,6 @@ def load_files(container_path, description=None, categories=None,
         'target_names', the meaning of the labels, and 'DESCR', the full
         description of the dataset.
     """
-    if charset is not None:
-        warnings.warn("The charset parameter is deprecated as of version "
-                      "0.14 and will be removed in 0.16. Use encode instead.",
-                      DeprecationWarning)
-        encoding = charset
-
-    if charset_error is not None:
-        warnings.warn("The charset_error parameter is deprecated as of "
-                      "version 0.14 and will be removed in 0.16. Use "
-                      "decode_error instead.",
-                      DeprecationWarning)
-        decode_error = charset_error
-
     target = []
     target_names = []
     filenames = []
@@ -198,7 +209,10 @@ def load_files(container_path, description=None, categories=None,
         target = target[indices]
 
     if load_content:
-        data = [open(filename, 'rb').read() for filename in filenames]
+        data = []
+        for filename in filenames:
+            with open(filename, 'rb') as f:
+                data.append(f.read())
         if encoding is not None:
             data = [d.decode(encoding, decode_error) for d in data]
         return Bunch(data=data,
@@ -249,22 +263,25 @@ def load_iris():
     ['setosa', 'versicolor', 'virginica']
     """
     module_path = dirname(__file__)
-    data_file = csv.reader(open(join(module_path, 'data', 'iris.csv')))
-    fdescr = open(join(module_path, 'descr', 'iris.rst'))
-    temp = next(data_file)
-    n_samples = int(temp[0])
-    n_features = int(temp[1])
-    target_names = np.array(temp[2:])
-    data = np.empty((n_samples, n_features))
-    target = np.empty((n_samples,), dtype=np.int)
+    with open(join(module_path, 'data', 'iris.csv')) as csv_file:
+        data_file = csv.reader(csv_file)
+        temp = next(data_file)
+        n_samples = int(temp[0])
+        n_features = int(temp[1])
+        target_names = np.array(temp[2:])
+        data = np.empty((n_samples, n_features))
+        target = np.empty((n_samples,), dtype=np.int)
 
-    for i, ir in enumerate(data_file):
-        data[i] = np.asarray(ir[:-1], dtype=np.float)
-        target[i] = np.asarray(ir[-1], dtype=np.int)
+        for i, ir in enumerate(data_file):
+            data[i] = np.asarray(ir[:-1], dtype=np.float)
+            target[i] = np.asarray(ir[-1], dtype=np.int)
+
+    with open(join(module_path, 'descr', 'iris.rst')) as rst_file:
+        fdescr = rst_file.read()
 
     return Bunch(data=data, target=target,
                  target_names=target_names,
-                 DESCR=fdescr.read(),
+                 DESCR=fdescr,
                  feature_names=['sepal length (cm)', 'sepal width (cm)',
                                 'petal length (cm)', 'petal width (cm)'])
 
@@ -313,7 +330,8 @@ def load_digits(n_class=10):
     module_path = dirname(__file__)
     data = np.loadtxt(join(module_path, 'data', 'digits.csv.gz'),
                       delimiter=',')
-    descr = open(join(module_path, 'descr', 'digits.rst')).read()
+    with open(join(module_path, 'descr', 'digits.rst')) as f:
+        descr = f.read()
     target = data[:, -1]
     flat_data = data[:, :-1]
     images = flat_data.view()
@@ -414,25 +432,31 @@ def load_boston():
     (506, 13)
     """
     module_path = dirname(__file__)
-    data_file = csv.reader(open(join(module_path, 'data',
-                                     'boston_house_prices.csv')))
-    fdescr = open(join(module_path, 'descr', 'boston_house_prices.rst'))
-    temp = next(data_file)
-    n_samples = int(temp[0])
-    n_features = int(temp[1])
-    data = np.empty((n_samples, n_features))
-    target = np.empty((n_samples,))
-    temp = next(data_file)  # names of features
-    feature_names = np.array(temp)
 
-    for i, d in enumerate(data_file):
-        data[i] = np.asarray(d[:-1], dtype=np.float)
-        target[i] = np.asarray(d[-1], dtype=np.float)
+    fdescr_name = join(module_path, 'descr', 'boston_house_prices.rst')
+    with open(fdescr_name) as f:
+        descr_text = f.read()
+
+    data_file_name = join(module_path, 'data', 'boston_house_prices.csv')
+    with open(data_file_name) as f:
+        data_file = csv.reader(f)
+        temp = next(data_file)
+        n_samples = int(temp[0])
+        n_features = int(temp[1])
+        data = np.empty((n_samples, n_features))
+        target = np.empty((n_samples,))
+        temp = next(data_file)  # names of features
+        feature_names = np.array(temp)
+
+        for i, d in enumerate(data_file):
+            data[i] = np.asarray(d[:-1], dtype=np.float)
+            target[i] = np.asarray(d[-1], dtype=np.float)
 
     return Bunch(data=data,
                  target=target,
-                 feature_names=feature_names,
-                 DESCR=fdescr.read())
+                 # last column is target value
+                 feature_names=feature_names[:-1],
+                 DESCR=descr_text)
 
 
 def load_sample_images():

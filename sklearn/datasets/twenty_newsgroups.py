@@ -50,7 +50,6 @@ from .base import get_data_home
 from .base import Bunch
 from .base import load_files
 from ..utils import check_random_state
-from ..utils.fixes import in1d
 from ..feature_extraction.text import CountVectorizer
 from ..preprocessing import normalize
 from ..externals import joblib, six
@@ -81,10 +80,16 @@ def download_20newsgroups(target_dir, cache_path):
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
 
-    if not os.path.exists(archive_path):
-        logger.warn("Downloading dataset from %s (14 MB)", URL)
-        opener = urlopen(URL)
-        open(archive_path, 'wb').write(opener.read())
+    if os.path.exists(archive_path):
+        # Download is not complete as the .tar.gz file is removed after
+        # download.
+        logger.warning("Download was incomplete, downloading again.")
+        os.remove(archive_path)
+
+    logger.warning("Downloading dataset from %s (14 MB)", URL)
+    opener = urlopen(URL)
+    with open(archive_path, 'wb') as f:
+        f.write(opener.read())
 
     logger.info("Decompressing %s", archive_path)
     tarfile.open(archive_path, "r:gz").extractall(path=target_dir)
@@ -94,7 +99,8 @@ def download_20newsgroups(target_dir, cache_path):
     cache = dict(train=load_files(train_path, encoding='latin1'),
                  test=load_files(test_path, encoding='latin1'))
     compressed_content = codecs.encode(pickle.dumps(cache), 'zlib_codec')
-    open(cache_path, 'wb').write(compressed_content)
+    with open(cache_path, 'wb') as f:
+        f.write(compressed_content)
 
     shutil.rmtree(target_dir)
     return cache
@@ -157,7 +163,7 @@ def fetch_20newsgroups(data_home=None, subset='train', categories=None,
         for the test set, 'all' for both, with shuffled ordering.
 
     data_home: optional, default: None
-        Specify an download and cache folder for the datasets. If None,
+        Specify a download and cache folder for the datasets. If None,
         all scikit-learn data is stored in '~/scikit_learn_data' subfolders.
 
     categories: None or collection of string or unicode
@@ -197,7 +203,8 @@ def fetch_20newsgroups(data_home=None, subset='train', categories=None,
     cache = None
     if os.path.exists(cache_path):
         try:
-            compressed_content = open(cache_path, 'rb').read()
+            with open(cache_path, 'rb') as f:
+                compressed_content = f.read()
             uncompressed_content = codecs.decode(
                 compressed_content, 'zlib_codec')
             cache = pickle.loads(uncompressed_content)
@@ -229,10 +236,11 @@ def fetch_20newsgroups(data_home=None, subset='train', categories=None,
         data.data = data_lst
         data.target = np.array(target)
         data.filenames = np.array(filenames)
-        data.description = 'the 20 newsgroups by date dataset'
     else:
         raise ValueError(
             "subset can only be 'train', 'test' or 'all', got '%s'" % subset)
+
+    data.description = 'the 20 newsgroups by date dataset'
 
     if 'headers' in remove:
         data.data = [strip_newsgroup_header(text) for text in data.data]
@@ -246,7 +254,7 @@ def fetch_20newsgroups(data_home=None, subset='train', categories=None,
         # Sort the categories to have the ordering of the labels
         labels.sort()
         labels, categories = zip(*labels)
-        mask = in1d(data.target, labels)
+        mask = np.in1d(data.target, labels)
         data.filenames = data.filenames[mask]
         data.target = data.target[mask]
         # searchsorted to have continuous labels

@@ -16,8 +16,8 @@ Standardization, or mean removal and variance scaling
 =====================================================
 
 **Standardization** of datasets is a **common requirement for many
-machine learning estimators** implemented in the scikit: they might behave
-badly if the individual feature do not more or less look like standard
+machine learning estimators** implemented in the scikit; they might behave
+badly if the individual features do not more or less look like standard
 normally distributed data: Gaussian with **zero mean and unit variance**.
 
 In practice we often ignore the shape of the distribution and just
@@ -100,6 +100,7 @@ of :class:`StandardScaler`.
 
 Scaling features to a range
 ---------------------------
+
 An alternative standardization is scaling features to
 lie between a given minimum and maximum value, often between zero and one.
 This can be achieved using :class:`MinMaxScaler`.
@@ -144,6 +145,17 @@ full formula is::
     X_std = (X - X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))
 
     X_scaled = X_std / (max - min) + min
+
+
+Scaling data with outliers
+--------------------------
+
+If your data contains many outliers, scaling using the mean and variance
+of the data is likely to not work very well. In these cases, you can use
+:func:`robust_scale` and :class:`RobustScaler` as drop-in replacements
+instead. They use more robust estimates for the center and range of your
+data.
+
 
 .. topic:: References:
 
@@ -343,7 +355,7 @@ Continuing the example above::
   >>> enc = preprocessing.OneHotEncoder()
   >>> enc.fit([[0, 0, 3], [1, 1, 0], [0, 2, 1], [1, 0, 2]])  # doctest: +ELLIPSIS
   OneHotEncoder(categorical_features='all', dtype=<... 'float'>,
-         n_values='auto')
+         handle_unknown='error', n_values='auto', sparse=True)
   >>> enc.transform([[0, 1, 3]]).toarray()
   array([[ 1.,  0.,  0.,  1.,  0.,  0.,  0.,  0.,  1.]])
 
@@ -358,65 +370,7 @@ numbers the continent and the last four the web browser.
 See :ref:`dict_feature_extraction` for categorical features that are represented
 as a dict, not as integers.
 
-
-Label preprocessing
-===================
-
-Label binarization
-------------------
-
-:class:`LabelBinarizer` is a utility class to help create a label indicator
-matrix from a list of multi-class labels::
-
-    >>> lb = preprocessing.LabelBinarizer()
-    >>> lb.fit([1, 2, 6, 4, 2])
-    LabelBinarizer(neg_label=0, pos_label=1)
-    >>> lb.classes_
-    array([1, 2, 4, 6])
-    >>> lb.transform([1, 6])
-    array([[1, 0, 0, 0],
-           [0, 0, 0, 1]])
-
-:class:`LabelBinarizer` also supports multiple labels per instance::
-
-    >>> lb.fit_transform([(1, 2), (3,)])
-    array([[1, 1, 0],
-           [0, 0, 1]])
-    >>> lb.classes_
-    array([1, 2, 3])
-
-Label encoding
---------------
-
-:class:`LabelEncoder` is a utility class to help normalize labels such that
-they contain only values between 0 and n_classes-1. This is sometimes useful
-for writing efficient Cython routines. :class:`LabelEncoder` can be used as
-follows::
-
-    >>> from sklearn import preprocessing
-    >>> le = preprocessing.LabelEncoder()
-    >>> le.fit([1, 2, 2, 6])
-    LabelEncoder()
-    >>> le.classes_
-    array([1, 2, 6])
-    >>> le.transform([1, 1, 2, 6])
-    array([0, 0, 1, 2])
-    >>> le.inverse_transform([0, 0, 1, 2])
-    array([1, 1, 2, 6])
-
-It can also be used to transform non-numerical labels (as long as they are
-hashable and comparable) to numerical labels::
-
-    >>> le = preprocessing.LabelEncoder()
-    >>> le.fit(["paris", "paris", "tokyo", "amsterdam"])
-    LabelEncoder()
-    >>> list(le.classes_)
-    ['amsterdam', 'paris', 'tokyo']
-    >>> le.transform(["tokyo", "tokyo", "paris"])
-    array([2, 2, 1])
-    >>> list(le.inverse_transform([2, 2, 1]))
-    ['tokyo', 'tokyo', 'paris']
-
+.. _imputation:
 
 Imputation of missing values
 ============================
@@ -468,4 +422,4 @@ in the matrix. This format is thus suitable when there are many more missing
 values than observed values.
 
 :class:`Imputer` can be used in a Pipeline as a way to build a composite
-estimator that supports imputation. See :ref:`example_imputation.py`
+estimator that supports imputation. See :ref:`example_missing_values.py`

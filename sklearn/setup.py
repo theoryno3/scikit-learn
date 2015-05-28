@@ -22,8 +22,6 @@ def configuration(parent_package='', top_path=None):
     config.add_subpackage('feature_extraction/tests')
     config.add_subpackage('cluster')
     config.add_subpackage('cluster/tests')
-    config.add_subpackage('cluster/bicluster')
-    config.add_subpackage('cluster/bicluster/tests')
     config.add_subpackage('covariance')
     config.add_subpackage('covariance/tests')
     config.add_subpackage('cross_decomposition')
@@ -51,16 +49,8 @@ def configuration(parent_package='', top_path=None):
     config.add_subpackage('metrics/tests')
     config.add_subpackage('metrics/cluster')
     config.add_subpackage('metrics/cluster/tests')
-    config.add_subpackage('metrics/cluster/bicluster')
-    config.add_subpackage('metrics/cluster/bicluster/tests')
 
-    # add cython extension module for hmm
-    config.add_extension(
-        '_hmmc',
-        sources=['_hmmc.c'],
-        include_dirs=[numpy.get_include()],
-        libraries=libraries,
-    )
+    # add cython extension module for isotonic regression
     config.add_extension(
         '_isotonic',
         sources=['_isotonic.c'],

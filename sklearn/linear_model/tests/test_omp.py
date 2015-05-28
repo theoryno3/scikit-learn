@@ -16,7 +16,6 @@ from sklearn.linear_model import (orthogonal_mp, orthogonal_mp_gram,
                                   OrthogonalMatchingPursuit,
                                   OrthogonalMatchingPursuitCV,
                                   LinearRegression)
-from sklearn.utils.fixes import count_nonzero
 from sklearn.utils import check_random_state
 from sklearn.datasets import make_sparse_coded_signal
 
@@ -43,10 +42,10 @@ def test_correct_shapes_gram():
 
 
 def test_n_nonzero_coefs():
-    assert_true(count_nonzero(orthogonal_mp(X, y[:, 0],
-                              n_nonzero_coefs=5)) <= 5)
-    assert_true(count_nonzero(orthogonal_mp(X, y[:, 0], n_nonzero_coefs=5,
-                                            precompute=True)) <= 5)
+    assert_true(np.count_nonzero(orthogonal_mp(X, y[:, 0],
+                                 n_nonzero_coefs=5)) <= 5)
+    assert_true(np.count_nonzero(orthogonal_mp(X, y[:, 0], n_nonzero_coefs=5,
+                                               precompute=True)) <= 5)
 
 
 def test_tol():
@@ -107,41 +106,24 @@ def test_estimator():
     omp.fit(X, y[:, 0])
     assert_equal(omp.coef_.shape, (n_features,))
     assert_equal(omp.intercept_.shape, ())
-    assert_true(count_nonzero(omp.coef_) <= n_nonzero_coefs)
+    assert_true(np.count_nonzero(omp.coef_) <= n_nonzero_coefs)
 
     omp.fit(X, y)
     assert_equal(omp.coef_.shape, (n_targets, n_features))
     assert_equal(omp.intercept_.shape, (n_targets,))
-    assert_true(count_nonzero(omp.coef_) <= n_targets * n_nonzero_coefs)
+    assert_true(np.count_nonzero(omp.coef_) <= n_targets * n_nonzero_coefs)
 
     omp.set_params(fit_intercept=False, normalize=False)
 
-    assert_warns(DeprecationWarning, omp.fit, X, y[:, 0], Gram=G, Xy=Xy[:, 0])
+    omp.fit(X, y[:, 0])
     assert_equal(omp.coef_.shape, (n_features,))
     assert_equal(omp.intercept_, 0)
-    assert_true(count_nonzero(omp.coef_) <= n_nonzero_coefs)
+    assert_true(np.count_nonzero(omp.coef_) <= n_nonzero_coefs)
 
-    assert_warns(DeprecationWarning, omp.fit, X, y, Gram=G, Xy=Xy)
+    omp.fit(X, y)
     assert_equal(omp.coef_.shape, (n_targets, n_features))
     assert_equal(omp.intercept_, 0)
-    assert_true(count_nonzero(omp.coef_) <= n_targets * n_nonzero_coefs)
-
-
-def test_scaling_with_gram():
-    omp1 = OrthogonalMatchingPursuit(n_nonzero_coefs=1,
-                                     fit_intercept=False, normalize=False)
-    omp2 = OrthogonalMatchingPursuit(n_nonzero_coefs=1,
-                                     fit_intercept=True, normalize=False)
-    omp3 = OrthogonalMatchingPursuit(n_nonzero_coefs=1,
-                                     fit_intercept=False, normalize=True)
-
-    f, w = assert_warns, DeprecationWarning
-    f(w, omp1.fit, X, y, Gram=G)
-    f(w, omp1.fit, X, y, Gram=G, Xy=Xy)
-    f(w, omp2.fit, X, y, Gram=G)
-    f(w, omp2.fit, X, y, Gram=G, Xy=Xy)
-    f(w, omp3.fit, X, y, Gram=G)
-    f(w, omp3.fit, X, y, Gram=G, Xy=Xy)
+    assert_true(np.count_nonzero(omp.coef_) <= n_targets * n_nonzero_coefs)
 
 
 def test_identical_regressors():
@@ -184,6 +166,15 @@ def test_omp_path():
     assert_array_almost_equal(path[:, :, -1], last)
     path = orthogonal_mp_gram(G, Xy, n_nonzero_coefs=5, return_path=True)
     last = orthogonal_mp_gram(G, Xy, n_nonzero_coefs=5, return_path=False)
+    assert_equal(path.shape, (n_features, n_targets, 5))
+    assert_array_almost_equal(path[:, :, -1], last)
+
+
+def test_omp_return_path_prop_with_gram():
+    path = orthogonal_mp(X, y, n_nonzero_coefs=5, return_path=True,
+                         precompute=True)
+    last = orthogonal_mp(X, y, n_nonzero_coefs=5, return_path=False,
+                         precompute=True)
     assert_equal(path.shape, (n_features, n_targets, 5))
     assert_array_almost_equal(path[:, :, -1], last)
 

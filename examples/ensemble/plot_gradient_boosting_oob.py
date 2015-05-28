@@ -10,7 +10,7 @@ they can be computed on-the-fly without the need for repeated model
 fitting.
 OOB estimates are only available for Stochastic Gradient Boosting
 (i.e. ``subsample < 1.0``), the estimates are derived from the improvement
-in loss based on the examples not included in the boostrap sample
+in loss based on the examples not included in the bootstrap sample
 (the so-called out-of-bag examples).
 The OOB estimator is a pessimistic estimator of the true
 test loss, but remains a fairly good approximation for a small number of trees.
@@ -30,7 +30,7 @@ print(__doc__)
 # License: BSD 3 clause
 
 import numpy as np
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 
 from sklearn import ensemble
 from sklearn.cross_validation import KFold
@@ -106,9 +106,9 @@ cv_score -= cv_score[0]
 cv_best_iter = x[np.argmin(cv_score)]
 
 # color brew for the three curves
-oob_color = map(lambda x: x / 256.0, (190, 174, 212))
-test_color = map(lambda x: x / 256.0, (127, 201, 127))
-cv_color = map(lambda x: x / 256.0, (253, 192, 134))
+oob_color = list(map(lambda x: x / 256.0, (190, 174, 212)))
+test_color = list(map(lambda x: x / 256.0, (127, 201, 127)))
+cv_color = list(map(lambda x: x / 256.0, (253, 192, 134)))
 
 # plot curves and vertical lines for best iterations
 plt.plot(x, cumsum, label='OOB loss', color=oob_color)
@@ -122,7 +122,7 @@ plt.axvline(x=cv_best_iter, color=cv_color)
 xticks = plt.xticks()
 xticks_pos = np.array(xticks[0].tolist() +
                       [oob_best_iter, cv_best_iter, test_best_iter])
-xticks_label = np.array(map(lambda t: int(t), xticks[0]) +
+xticks_label = np.array(list(map(lambda t: int(t), xticks[0])) +
                         ['OOB', 'CV', 'Test'])
 ind = np.argsort(xticks_pos)
 xticks_pos = xticks_pos[ind]

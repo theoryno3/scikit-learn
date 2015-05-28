@@ -15,12 +15,14 @@ import functools
 import time
 import threading
 import itertools
+
 try:
     import cPickle as pickle
 except:
     import pickle
 
-from ._multiprocessing import mp
+from ._multiprocessing_helpers import mp
+
 if mp is not None:
     from .pool import MemmapingPool
     from multiprocessing.pool import ThreadPool
@@ -103,12 +105,21 @@ class SafeFunction(object):
 
 
 ###############################################################################
-def delayed(function):
-    """ Decorator used to capture the arguments of a function.
+def delayed(function, check_pickle=True):
+    """Decorator used to capture the arguments of a function.
+
+    Pass `check_pickle=False` when:
+
+    - performing a possibly repeated check is too costly and has been done
+      already once outside of the call to delayed.
+
+    - when used in conjunction `Parallel(backend='threading')`.
+
     """
     # Try to pickle the input function, to catch the problems early when
-    # using with multiprocessing
-    pickle.dumps(function)
+    # using with multiprocessing:
+    if check_pickle:
+        pickle.dumps(function)
 
     def delayed_function(*args, **kwargs):
         return function, args, kwargs
@@ -183,13 +194,13 @@ class Parallel(Logger):
 
         Parameters
         -----------
-        n_jobs: int
+        n_jobs : int
             The number of jobs to use for the computation. If -1 all CPUs
             are used. If 1 is given, no parallel computing code is used
             at all, which is useful for debugging. For n_jobs below -1,
             (n_cpus + 1 + n_jobs) are used. Thus for n_jobs = -2, all
             CPUs but one are used.
-        backend: str or None
+        backend : str or None
             Specify the parallelization backend implementation.
             Supported backends are:
               - "multiprocessing" used by default, can induce some
@@ -202,16 +213,16 @@ class Parallel(Logger):
                 explicitly releases the GIL (for instance a Cython loop wrapped
                 in a "with nogil" block or an expensive call to a library such
                 as NumPy).
-        verbose: int, optional
+        verbose : int, optional
             The verbosity level: if non zero, progress messages are
             printed. Above 50, the output is sent to stdout.
             The frequency of the messages increases with the verbosity level.
             If it more than 10, all iterations are reported.
-        pre_dispatch: {'all', integer, or expression, as in '3*n_jobs'}
+        pre_dispatch : {'all', integer, or expression, as in '3*n_jobs'}
             The amount of jobs to be pre-dispatched. Default is 'all',
             but it may be memory consuming, for instance if each job
             involves a lot of a data.
-        temp_folder: str, optional
+        temp_folder : str, optional
             Folder to be used by the pool for memmaping large arrays
             for sharing memory with worker processes. If None, this will try in
             order:
@@ -222,12 +233,16 @@ class Parallel(Logger):
               with TMP, TMPDIR or TEMP environment variables, typically /tmp
               under Unix operating systems.
             Only active when backend="multiprocessing".
-        max_nbytes int, str, or None, optional, 100e6 (100MB) by default
+        max_nbytes : int, str, or None, optional, 100e6 (100MB) by default
             Threshold on the size of arrays passed to the workers that
-            triggers automated memmory mapping in temp_folder. Can be an int
+            triggers automated memory mapping in temp_folder. Can be an int
             in Bytes, or a human-readable string, e.g., '1M' for 1 megabyte.
             Use None to disable memmaping of large arrays.
             Only active when backend="multiprocessing".
+        mmap_mode : 'r', 'r+' or 'c'
+            Mode for the created memmap datastructure. See the documentation of
+            numpy.memmap for more details. Note: 'w+' is coerced to 'r+'
+            automatically to avoid zeroing the data on unpickling.
 
         Notes
         -----
@@ -352,7 +367,7 @@ class Parallel(Logger):
          [Parallel(n_jobs=2)]: Done   6 out of   6 | elapsed:    0.0s finished
     '''
     def __init__(self, n_jobs=1, backend=None, verbose=0, pre_dispatch='all',
-                 temp_folder=None, max_nbytes=100e6, mmap_mode='c'):
+                 temp_folder=None, max_nbytes=100e6, mmap_mode='r'):
         self.verbose = verbose
         self._mp_context = None
         if backend is None:
@@ -519,7 +534,7 @@ class Parallel(Logger):
                         # Capture exception to add information on the local
                         # stack in addition to the distant stack
                         this_report = format_outer_frames(context=10,
-                                                        stack_start=1)
+                                                          stack_start=1)
                         report = """Multiprocessing exception:
     %s
     ---------------------------------------------------------------------------
@@ -577,10 +592,10 @@ class Parallel(Logger):
             else:
                 already_forked = int(os.environ.get('__JOBLIB_SPAWNED_PARALLEL__', 0))
                 if already_forked:
-                    raise ImportError('[joblib] Attempting to do parallel computing'
+                    raise ImportError('[joblib] Attempting to do parallel computing '
                             'without protecting your import on a system that does '
                             'not support forking. To use parallel-computing in a '
-                            'script, you must protect you main loop using "if '
+                            'script, you must protect your main loop using "if '
                             "__name__ == '__main__'"
                             '". Please see the joblib documentation on Parallel '
                             'for more information'

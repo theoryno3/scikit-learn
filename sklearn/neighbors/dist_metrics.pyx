@@ -78,7 +78,6 @@ METRIC_MAPPING = {'euclidean': EuclideanDistance,
                   'canberra': CanberraDistance,
                   'braycurtis': BrayCurtisDistance,
                   'matching': MatchingDistance,
-                  'hamming': HammingDistance,
                   'jaccard': JaccardDistance,
                   'dice': DiceDistance,
                   'kulsinski': KulsinskiDistance,
@@ -126,17 +125,17 @@ cdef class DistanceMetric:
 
     **Metrics intended for real-valued vector spaces:**
 
-    ==============  ====================  ========  ============================
+    ==============  ====================  ========  ===============================
     identifier      class name            args      distance function
-    --------------  --------------------  --------  ----------------------------
-    "euclidean"     EuclideanDistance     -         sqrt(sum((x - y)^2))
-    "manhattan"     ManhattanDistance     -         sum(|x - y|)
-    "chebyshev"     ChebyshevDistance     -         sum(max(|x - y|))
-    "minkowski"     MinkowskiDistance     p         sum(|x - y|^p)^(1/p)
-    "wminkowski"    WMinkowskiDistance    p, w      sum(w * |x - y|^p)^(1/p)
-    "seuclidean"    SEuclideanDistance    V         sqrt(sum((x - y)^2 / V))
-    "mahalanobis"   MahalanobisDistance   V or VI   sqrt((x - y)' V^-1 (x - y))
-    ==============  ====================  ========  ============================
+    --------------  --------------------  --------  -------------------------------
+    "euclidean"     EuclideanDistance     -         ``sqrt(sum((x - y)^2))``
+    "manhattan"     ManhattanDistance     -         ``sum(|x - y|)``
+    "chebyshev"     ChebyshevDistance     -         ``sum(max(|x - y|))``
+    "minkowski"     MinkowskiDistance     p         ``sum(|x - y|^p)^(1/p)``
+    "wminkowski"    WMinkowskiDistance    p, w      ``sum(w * |x - y|^p)^(1/p)``
+    "seuclidean"    SEuclideanDistance    V         ``sqrt(sum((x - y)^2 / V))``
+    "mahalanobis"   MahalanobisDistance   V or VI   ``sqrt((x - y)' V^-1 (x - y))``
+    ==============  ====================  ========  ===============================
 
     **Metrics intended for two-dimensional vector spaces:**
 
@@ -152,13 +151,13 @@ cdef class DistanceMetric:
     for integer-valued vectors, these are also valid metrics in the case of
     real-valued vectors.
 
-    =============  ====================  =====================================
+    =============  ====================  ========================================
     identifier     class name            distance function
-    -------------  --------------------  -------------------------------------
-    "hamming"      HammingDistance       N_unequal(x, y) / N_tot
-    "canberra"     CanberraDistance      sum(|x - y| / (|x| + |y|))
-    "braycurtis"   BrayCurtisDistance    sum(|x - y|) / (sum(|x|) + sum(|y|))
-    =============  ====================  =====================================
+    -------------  --------------------  ----------------------------------------
+    "hamming"      HammingDistance       ``N_unequal(x, y) / N_tot``
+    "canberra"     CanberraDistance      ``sum(|x - y| / (|x| + |y|))``
+    "braycurtis"   BrayCurtisDistance    ``sum(|x - y|) / (sum(|x|) + sum(|y|))``
+    =============  ====================  ========================================
 
     **Metrics intended for boolean-valued vector spaces:**  Any nonzero entry
     is evaluated to "True".  In the listings below, the following
@@ -225,6 +224,8 @@ cdef class DistanceMetric:
         """
         get state for pickling
         """
+        if self.__class__.__name__ == "PyFuncDistance":
+            return (float(self.p), self.vec, self.mat, self.func, self.kwargs)
         return (float(self.p), self.vec, self.mat)
 
     def __setstate__(self, state):
@@ -234,6 +235,9 @@ cdef class DistanceMetric:
         self.p = state[0]
         self.vec = state[1]
         self.mat = state[2]
+        if self.__class__.__name__ == "PyFuncDistance":
+            self.func = state[3]
+            self.kwargs = state[4]
         self.vec_ptr = get_vec_ptr(self.vec)
         self.mat_ptr = get_mat_ptr(self.mat)
         self.size = 1
@@ -286,7 +290,7 @@ cdef class DistanceMetric:
 
     cdef DTYPE_t dist(self, DTYPE_t* x1, DTYPE_t* x2, ITYPE_t size) except -1:
         """Compute the distance between vectors x1 and x2
-        
+
         This should be overridden in a base class.
         """
         return -999
@@ -982,10 +986,10 @@ cdef class HaversineDistance(DistanceMetric):
         return 2 * asin(sqrt(sin_0 * sin_0
                              + cos(x1[0]) * cos(x2[0]) * sin_1 * sin_1))
 
-    cdef inline DTYPE_t _rdist_to_dist(self, DTYPE_t rdist):
+    cdef inline DTYPE_t _rdist_to_dist(self, DTYPE_t rdist) except -1:
         return 2 * asin(sqrt(rdist))
 
-    cdef inline DTYPE_t _dist_to_rdist(self, DTYPE_t dist):
+    cdef inline DTYPE_t _dist_to_rdist(self, DTYPE_t dist) except -1:
         cdef DTYPE_t tmp = sin(0.5 * dist)
         return tmp * tmp
 

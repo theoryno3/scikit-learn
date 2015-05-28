@@ -14,6 +14,7 @@ that uses a custom alternative to SimpleQueue.
 # License: BSD 3 clause
 
 from mmap import mmap
+import errno
 import os
 import stat
 import sys
@@ -21,19 +22,27 @@ import threading
 import atexit
 import tempfile
 import shutil
+
 try:
+    # Python 2 compat
     from cPickle import loads
     from cPickle import dumps
-    from pickle import Pickler as _Pickler  # pure Python pickler in 2
 except ImportError:
     from pickle import loads
     from pickle import dumps
-    from pickle import _Pickler  # pure Python pickler in 3
+    import copyreg
+
+# Customizable pure Python pickler in Python 2
+# customizable C-optimized pickler under Python 3.3+
+from pickle import Pickler
+if sys.version_info[0] > 2 and not hasattr(Pickler, 'dispatch_table'):
+    # Special case for Python 3.2: use the pure Python pickler as fallback
+    from pickle import _Pickler as Pickler
 
 from pickle import HIGHEST_PROTOCOL
 from io import BytesIO
 
-from ._multiprocessing import mp, assert_spawning
+from ._multiprocessing_helpers import mp, assert_spawning
 # We need the class definition to derive from it not the multiprocessing.Pool
 # factory function
 from multiprocessing.pool import Pool
@@ -84,16 +93,23 @@ def has_shareable_memory(a):
     return _get_backing_memmap(a) is not None
 
 
-def strided_from_memmap(filename, dtype, mode, offset, order, shape, strides):
+def _strided_from_memmap(filename, dtype, mode, offset, order, shape, strides,
+                         total_buffer_len):
     """Reconstruct an array view on a memmory mapped file"""
     if mode == 'w+':
         # Do not zero the original data when unpickling
         mode = 'r+'
-    m = np.memmap(filename, dtype=dtype, shape=shape, mode=mode, offset=offset,
-                  order=order)
+
     if strides is None:
-        return m
-    return as_strided(m, strides=strides)
+        # Simple, contiguous memmap
+        return np.memmap(filename, dtype=dtype, shape=shape, mode=mode,
+                         offset=offset, order=order)
+    else:
+        # For non-contiguous data, memmap the total enclosing buffer and then
+        # extract the non-contiguous view with the stride-tricks API
+        base = np.memmap(filename, dtype=dtype, shape=total_buffer_len,
+                         mode=mode, offset=offset, order=order)
+        return as_strided(base, shape=shape, strides=strides)
 
 
 def _reduce_memmap_backed(a, m):
@@ -104,7 +120,7 @@ def _reduce_memmap_backed(a, m):
     attribute ancestry of a. ``m.base`` should be the real python mmap object.
     """
     # offset that comes from the striding differences between a and m
-    a_start = np.byte_bounds(a)[0]
+    a_start, a_end = np.byte_bounds(a)
     m_start = np.byte_bounds(m)[0]
     offset = a_start - m_start
 
@@ -118,13 +134,18 @@ def _reduce_memmap_backed(a, m):
         # Fortran
         order = 'C'
 
-    # If array is a contiguous view, no need to pass the strides
     if a.flags['F_CONTIGUOUS'] or a.flags['C_CONTIGUOUS']:
+        # If the array is a contiguous view, no need to pass the strides
         strides = None
+        total_buffer_len = None
     else:
+        # Compute the total number of items to map from which the strided
+        # view will be extracted.
         strides = a.strides
-    return (strided_from_memmap,
-            (m.filename, a.dtype, m.mode, offset, order, a.shape, strides))
+        total_buffer_len = (a_end - a_start) // a.itemsize
+    return (_strided_from_memmap,
+            (m.filename, a.dtype, m.mode, offset, order, a.shape, strides,
+             total_buffer_len))
 
 
 def reduce_memmap(a):
@@ -187,15 +208,16 @@ class ArrayMemmapReducer(object):
             # a is already backed by a memmap file, let's reuse it directly
             return _reduce_memmap_backed(a, m)
 
-        if self._max_nbytes is not None and a.nbytes > self._max_nbytes:
+        if (not a.dtype.hasobject
+                and self._max_nbytes is not None
+                and a.nbytes > self._max_nbytes):
             # check that the folder exists (lazily create the pool temp folder
             # if required)
             try:
                 os.makedirs(self._temp_folder)
                 os.chmod(self._temp_folder, FOLDER_PERMISSIONS)
             except OSError as e:
-                if e.errno != 17:
-                    # Errno 17 corresponds to 'Directory exists'
+                if e.errno != errno.EEXIST:
                     raise e
 
             # Find a unique, concurrent safe filename for writing the
@@ -243,7 +265,7 @@ class ArrayMemmapReducer(object):
 ###############################################################################
 # Enable custom pickling in Pool queues
 
-class CustomizablePickler(_Pickler):
+class CustomizablePickler(Pickler):
     """Pickler that accepts custom reducers.
 
     HIGHEST_PROTOCOL is selected by default as this pickler is used
@@ -261,23 +283,35 @@ class CustomizablePickler(_Pickler):
 
     # We override the pure Python pickler as its the only way to be able to
     # customize the dispatch table without side effects in Python 2.6
-    # to 3.2. For Python 3.3+ we could leverage the new dispatch_table
-    # feature from http://bugs.python.org/issue14166 but that would render
-    # the code more complex.
+    # to 3.2. For Python 3.3+ leverage the new dispatch_table
+    # feature from http://bugs.python.org/issue14166 that makes it possible
+    # to use the C implementation of the Pickler which is faster.
 
     def __init__(self, writer, reducers=None, protocol=HIGHEST_PROTOCOL):
-        _Pickler.__init__(self, writer, protocol=protocol)
-        # Make the dispatch registry an instance level attribute instead of a
-        # reference to the class dictionary
-        self.dispatch = _Pickler.dispatch.copy()
+        Pickler.__init__(self, writer, protocol=protocol)
+        if reducers is None:
+            reducers = {}
+        if hasattr(Pickler, 'dispatch'):
+            # Make the dispatch registry an instance level attribute instead of
+            # a reference to the class dictionary under Python 2
+            self.dispatch = Pickler.dispatch.copy()
+        else:
+            # Under Python 3 initialize the dispatch table with with a copy of
+            # the default registry
+            self.dispatch_table = copyreg.dispatch_table.copy()
         for type, reduce_func in reducers.items():
             self.register(type, reduce_func)
 
     def register(self, type, reduce_func):
-        def dispatcher(self, obj):
-            reduced = reduce_func(obj)
-            self.save_reduce(obj=obj, *reduced)
-        self.dispatch[type] = dispatcher
+        if hasattr(Pickler, 'dispatch'):
+            # Python 2 pickler dispatching is not explicitly customizable.
+            # Let us use a closure to workaround this limitation.
+            def dispatcher(self, obj):
+                reduced = reduce_func(obj)
+                self.save_reduce(obj=obj, *reduced)
+            self.dispatch[type] = dispatcher
+        else:
+            self.dispatch_table[type] = reduce_func
 
 
 class CustomizablePicklingQueue(object):
@@ -479,7 +513,7 @@ class MemmapingPool(PicklingPool):
     """
 
     def __init__(self, processes=None, temp_folder=None, max_nbytes=1e6,
-                 mmap_mode='c', forward_reducers=None, backward_reducers=None,
+                 mmap_mode='r', forward_reducers=None, backward_reducers=None,
                  verbose=0, context_id=None, prewarm=False, **kwargs):
         if forward_reducers is None:
             forward_reducers = dict()
@@ -490,33 +524,35 @@ class MemmapingPool(PicklingPool):
         # pool instance (do not create in advance to spare FS write access if
         # no array is to be dumped):
         use_shared_mem = False
+        pool_folder_name = "joblib_memmaping_pool_%d_%d" % (
+            os.getpid(), id(self))
         if temp_folder is None:
             temp_folder = os.environ.get('JOBLIB_TEMP_FOLDER', None)
         if temp_folder is None:
             if os.path.exists(SYSTEM_SHARED_MEM_FS):
                 try:
-                    joblib_folder = os.path.join(
-                        SYSTEM_SHARED_MEM_FS, 'joblib')
-                    if not os.path.exists(joblib_folder):
-                        os.makedirs(joblib_folder)
+                    temp_folder = SYSTEM_SHARED_MEM_FS
+                    pool_folder = os.path.join(temp_folder, pool_folder_name)
+                    if not os.path.exists(pool_folder):
+                        os.makedirs(pool_folder)
                     use_shared_mem = True
                 except IOError:
-                    # Missing rights in the the /dev/shm partition, ignore
-                    pass
+                    # Missing rights in the the /dev/shm partition,
+                    # fallback to regular temp folder.
+                    temp_folder = None
         if temp_folder is None:
             # Fallback to the default tmp folder, typically /tmp
             temp_folder = tempfile.gettempdir()
         temp_folder = os.path.abspath(os.path.expanduser(temp_folder))
-        self._temp_folder = temp_folder = os.path.join(
-            temp_folder, "joblib_memmaping_pool_%d_%d" % (
-                os.getpid(), id(self)))
+        pool_folder = os.path.join(temp_folder, pool_folder_name)
+        self._temp_folder = pool_folder
 
         # Register the garbage collector at program exit in case caller forgets
         # to call terminate explicitly: note we do not pass any reference to
         # self to ensure that this callback won't prevent garbage collection of
         # the pool instance and related file handler resources such as POSIX
         # semaphores and pipes
-        atexit.register(lambda: delete_folder(temp_folder))
+        atexit.register(lambda: delete_folder(pool_folder))
 
         if np is not None:
             # Register smart numpy.ndarray reducers that detects memmap backed
@@ -525,7 +561,7 @@ class MemmapingPool(PicklingPool):
             if prewarm == "auto":
                 prewarm = not use_shared_mem
             forward_reduce_ndarray = ArrayMemmapReducer(
-                max_nbytes, temp_folder, mmap_mode, verbose,
+                max_nbytes, pool_folder, mmap_mode, verbose,
                 context_id=context_id, prewarm=prewarm)
             forward_reducers[np.ndarray] = forward_reduce_ndarray
             forward_reducers[np.memmap] = reduce_memmap
@@ -535,7 +571,7 @@ class MemmapingPool(PicklingPool):
             # to avoid confusing the caller and make it tricky to collect the
             # temporary folder
             backward_reduce_ndarray = ArrayMemmapReducer(
-                None, temp_folder, mmap_mode, verbose)
+                None, pool_folder, mmap_mode, verbose)
             backward_reducers[np.ndarray] = backward_reduce_ndarray
             backward_reducers[np.memmap] = reduce_memmap
 

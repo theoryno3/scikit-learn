@@ -42,6 +42,23 @@ extension in place::
 
     python setup.py build_ext --inplace
 
+
+Another option is to use the ``develop`` option if you change your code a lot
+and do not want to have to reinstall every time. This basically builds the
+extension in place and creates a link to the development directory (see
+`the setuptool docs <https://pythonhosted.org/setuptools/setuptools.html#development-mode>`_)::
+
+    python setup.py develop
+
+.. note::
+
+    if you decide to do that you have to rerun::
+
+        python setup.py build_ext --inplace
+
+    every time the source code of a compiled extension is
+    changed (for instance when switching branches or pulling changes from upstream).
+
 On Unix-like systems, you can simply type ``make`` in the top-level folder to
 build in-place and launch all the tests. Have a look at the ``Makefile`` for
 additional utilities.
@@ -100,8 +117,8 @@ email to the mailing list in order to get more visibility.
 .. note::
 
   In the above setup, your ``origin`` remote repository points to
-  YourLogin/scikit-learn.git. If you wish to `fetch/merge` from the main
-  repository instead of your `forked` one, you will need to add another remote
+  YourLogin/scikit-learn.git. If you wish to fetch/merge from the main
+  repository instead of your forked one, you will need to add another remote
   to use instead of ``origin``. If we choose the name ``upstream`` for it, the
   command will be::
 
@@ -214,8 +231,9 @@ and are viewable in a web browser. See the README file in the doc/ directory
 for more information.
 
 For building the documentation, you will need `sphinx
-<http://sphinx.pocoo.org/>`_ and `matplotlib
-<http://matplotlib.sourceforge.net/>`_.
+<http://sphinx.pocoo.org/>`_,
+`matplotlib <http://matplotlib.sourceforge.net/>`_ and
+`pillow <http://pillow.readthedocs.org/en/latest/>`_.
 
 **When you are writing documentation**, it is important to keep a good
 compromise between mathematical and algorithmic details, and give
@@ -238,12 +256,28 @@ intuition.
 
 Next, one or two small code examples to show its use can be added.
 
-Finally, any math and equations, followed by references,
+Next, any math and equations, followed by references,
 can be added to further the documentation. Not starting the
 documentation with the maths makes it more friendly towards
 users that are just interested in what the feature will do, as
-opposed to how it works `under the hood`.
+opposed to how it works "under the hood".
 
+Finally, follow the formatting rules below to make it consistently good:
+
+    * Add "See also" in docstrings for related classes/functions.
+    
+    * "See also" in docstrings should be one line per reference, 
+      with a colon and an explanation, for example::
+
+        See also
+        --------
+        SelectKBest: Select features based on the k highest scores.
+        SelectFpr: Select features based on a false positive rate test.
+
+    * For unwritten formatting rules, try to follow existing good works:
+    
+        * For "References" in docstrings, see the Silhouette Coefficient
+          (:func:`sklearn.metrics.silhouette_score`).
 
 .. warning:: **Sphinx version**
 
@@ -258,7 +292,7 @@ Testing and improving test coverage
 ------------------------------------
 
 High-quality `unit testing <http://en.wikipedia.org/wiki/Unit_testing>`_
-is a corner-stone of the sciki-learn development process. For this
+is a corner-stone of the scikit-learn development process. For this
 purpose, we use the `nose <http://nose.readthedocs.org/en/latest/>`_
 package. The tests are functions appropriately names, located in `tests`
 subdirectories, that check the validity of the algorithms and the
@@ -372,7 +406,7 @@ In addition, we add the following guidelines:
       that is implemented in ``sklearn.foo.bar.baz``,
       the test should import it from ``sklearn.foo``.
 
-    * **Please don't use `import *` in any case**. It is considered harmful
+    * **Please don't use ``import *`` in any case**. It is considered harmful
       by the `official Python recommendations
       <http://docs.python.org/howto/doanddont.html#from-module-import>`_.
       It makes the code harder to read as the origin of symbols is no
@@ -396,15 +430,14 @@ Input validation
 
 The module :mod:`sklearn.utils` contains various functions for doing input
 validation and conversion. Sometimes, ``np.asarray`` suffices for validation;
-do `not` use ``np.asanyarray`` or ``np.atleast_2d``, since those let NumPy's
+do *not* use ``np.asanyarray`` or ``np.atleast_2d``, since those let NumPy's
 ``np.matrix`` through, which has a different API
 (e.g., ``*`` means dot product on ``np.matrix``,
 but Hadamard product on ``np.ndarray``).
 
-In other cases, be sure to call :func:`safe_asarray`, :func:`atleast2d_or_csr`,
-:func:`as_float_array` or :func:`array2d` on any array-like argument passed to a
-scikit-learn API function. The exact function to use depends mainly on whether
-``scipy.sparse`` matrices must be accepted.
+In other cases, be sure to call :func:`check_array` on any array-like argument
+passed to a scikit-learn API function. The exact parameters to use depends
+mainly on whether and which ``scipy.sparse`` matrices must be accepted.
 
 For more information, refer to the :ref:`developers-utils` page.
 
@@ -420,7 +453,7 @@ See :func:`sklearn.utils.check_random_state` in :ref:`developers-utils`.
 
 Here's a simple example of code using some of the above guidelines::
 
-    from sklearn.utils import array2d, check_random_state
+    from sklearn.utils import check_array, check_random_state
 
     def choose_random_sample(X, random_state=0):
         """
@@ -439,7 +472,7 @@ Here's a simple example of code using some of the above guidelines::
         x : numpy array, shape = (n_features,)
             A random point selected from X
         """
-        X = array2d(X)
+        X = check_array(X)
         random_state = check_random_state(random_state)
         i = random_state.randint(X.shape[0])
         return X[i]
@@ -490,7 +523,7 @@ E.g., if the function ``zero_one`` is renamed to ``zero_one_loss``,
 we add the decorator ``deprecated`` (from ``sklearn.utils``)
 to ``zero_one`` and call ``zero_one_loss`` from that function::
 
-    from ..utils import check_arrays, deprecated
+    from ..utils import deprecated
 
     def zero_one_loss(y_true, y_pred, normalize=True):
         # actual implementation
@@ -577,7 +610,7 @@ multiple interfaces):
 
     Classification algorithms usually also offer a way to quantify certainty
     of a prediction, either using ``decision_function`` or ``predict_proba``::
-        
+
       probability = obj.predict_proba(data)
 
 :Transformer:
@@ -634,22 +667,24 @@ an estimator without passing any arguments to it. The arguments should all
 correspond to hyperparameters describing the model or the optimisation
 problem the estimator tries to solve. These initial arguments (or parameters)
 are always remembered by the estimator.
-Also note that they should not be documented under the `Attributes` section,
-but rather under the `Parameters` section for that estimator.
+Also note that they should not be documented under the "Attributes" section,
+but rather under the "Parameters" section for that estimator.
 
 In addition, **every keyword argument accepted by ``__init__`` should
 correspond to an attribute on the instance**. Scikit-learn relies on this to
 find the relevant attributes to set on an estimator when doing model selection.
 
-To summarize, a `__init__` should look like::
+To summarize, an ``__init__`` should look like::
 
     def __init__(self, param1=1, param2=2):
         self.param1 = param1
         self.param2 = param2
 
-There should be no logic, and the parameters should not be changed.
-The corresponding logic should be put where the parameters are used. The
-following is wrong::
+There should be no logic, not even input validation,
+and the parameters should not be changed.
+The corresponding logic should be put where the parameters are used,
+typically in ``fit``.
+The following is wrong::
 
     def __init__(self, param1=1, param2=2, param3=3):
         # WRONG: parameters should not be modified
@@ -660,8 +695,9 @@ following is wrong::
         # the argument in the constructor
         self.param3 = param2
 
-Scikit-learn relies on this mechanism to introspect objects to set
-their parameters by cross-validation.
+The reason for postponing the validation is that the same validation
+would have to be performed in ``set_params``,
+which is used in algorithms like ``GridSearchCV``.
 
 Fitting
 ^^^^^^^
@@ -696,8 +732,11 @@ is not met, an exception of type ``ValueError`` should be raised.
 ``y`` might be ignored in the case of unsupervised learning. However, to
 make it possible to use the estimator as part of a pipeline that can
 mix both supervised and unsupervised transformers, even unsupervised
-estimators are kindly asked to accept a ``y=None`` keyword argument in
+estimators need to accept a ``y=None`` keyword argument in
 the second position that is just ignored by the estimator.
+For the same reason, ``fit_predict``, ``fit_transform``, ``score``
+and ``partial_fit`` methods need to accept a ``y`` argument in
+the second place if they are implemented.
 
 The method should return the object (``self``). This pattern is useful
 to be able to implement quick one liners in an IPython session such as::
@@ -719,8 +758,8 @@ Estimated Attributes
 
 Attributes that have been estimated from the data must always have a name
 ending with trailing underscore, for example the coefficients of
-some regression estimator would be stored in a `coef_` attribute after
-`fit()` has been called.
+some regression estimator would be stored in a ``coef_`` attribute after
+``fit`` has been called.
 
 The last-mentioned attributes are expected to be overridden when
 you call ``fit`` a second time without taking any previous value into
@@ -738,7 +777,13 @@ Rolling your own estimator
 If you want to implement a new estimator that is scikit-learn-compatible,
 whether it is just for you or for contributing it to sklearn, there are several
 internals of scikit-learn that you should be aware of in addition to the
-sklearn API outlined above.
+sklearn API outlined above. You can check whether your estimator
+adheres to the scikit-learn interface and standards by running
+:func:`utils.estimator_checks.check_estimator` on the class::
+
+  >>> from sklearn.utils.estimator_checks import check_estimator
+  >>> from sklearn.svm import LinearSVC
+  >>> check_estimator(LinearSVC)  # passes
 
 The main motivation to make a class compatible to the scikit-learn estimator
 interface might be that you want to use it together with model assessment and
@@ -764,10 +809,7 @@ E.g., here's a custom classifier::
   ...         return self
   ...     def predict(self, X):
   ...         return np.repeat(self.classes_[self.majority_], len(X))
-  ...     # doctest: +SKIP
 
-.. We don't run the above "doctest" because it requires a recent NumPy and we
-   don't want users to import from sklearn.utils.fixes.
 
 get_params and set_params
 -------------------------
@@ -782,6 +824,7 @@ The default value for ``deep`` should be true.
 
 The ``set_params`` on the other hand takes as input a dict of the form
 ``'parameter': value`` and sets the parameter of the estimator using this dict.
+Return value must be estimator itself.
 
 While the ``get_params`` mechanism is not essential (see :ref:`cloning` below),
 the ``set_params`` function is necessary as it is used to set parameters during
@@ -799,6 +842,7 @@ implement the interface is::
     def set_params(self, **parameters):
         for parameter, value in parameters.items():
             self.setattr(parameter, value)
+        return self
 
 
 Parameters and init
@@ -811,6 +855,11 @@ The easiest and recommended way to accomplish this is to
 **not do any parameter validation in ``__init__``**.
 All logic behind estimator parameters,
 like translating string arguments into functions, should be done in ``fit``.
+
+Also it is expected that parameters with trailing ``_`` are **not to be set
+inside the ``__init__`` method**. All and only the public attributes set by
+fit have a trailing ``_``. As a result the existence of parameters with
+trailing ``_`` is used to check if the estimator has been fitted.
 
 .. _cloning:
 
@@ -835,9 +884,24 @@ last step, it needs to provide a ``fit`` or ``fit_transform`` function.
 To be able to evaluate the pipeline on any data but the training set,
 it also needs to provide a ``transform`` function.
 There are no special requirements for the last step in a pipeline, except that
-it has a ``fit`` function.  All ``fit`` and ``fit_transform`` functions must
-take arguments ``X, y``, even if y is not used.
+it has a ``fit`` function. All ``fit`` and ``fit_transform`` functions must
+take arguments ``X, y``, even if y is not used. Similarly, for ``score`` to be
+usable, the last step of the pipeline needs to have a ``score`` function that
+accepts an optional ``y``.
 
+Estimator types
+---------------
+Some common functionality depends on the kind of estimator passed.
+For example, cross-validation in :class:`grid_search.GridSearchCV` and
+:func:`cross_validation.cross_val_score` defaults to being stratified when used
+on a classifier, but not otherwise. Similarly, scorers for average precision
+that take a continuous prediction need to call ``decision_function`` for classifiers,
+but ``predict`` for regressors. This distinction between classifiers and regressors
+is implemented using the ``_estimator_type`` attribute, which takes a string value.
+It should be ``"classifier"`` for classifiers and ``"regressor"`` for
+regressors and ``"clusterer"`` for clustering methods, to work as expected.
+Inheriting from ``ClassifierMixin``, ``RegressorMixin`` or ``ClusterMixin``
+will set the attribute automatically.
 
 Working notes
 -------------
@@ -860,12 +924,11 @@ should match the order in which ``predict_proba``, ``predict_log_proba``
 and ``decision_function`` return their values.
 The easiest way to achieve this is to put::
 
-    self.classes_, y = unique(y, return_inverse=True)
+    self.classes_, y = np.unique(y, return_inverse=True)
 
 in ``fit``.
-This return a new ``y`` that contains class indexes, rather than labels,
+This returns a new ``y`` that contains class indexes, rather than labels,
 in the range [0, ``n_classes``).
-``unique`` is available in ``sklearn.utils.fixes``.
 
 A classifier's ``predict`` method should return
 arrays containing class labels from ``classes_``.
